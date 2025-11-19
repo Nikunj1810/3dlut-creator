@@ -252,9 +252,31 @@ def main():
 
         print(f"\n🔧 使用方法:")
         print(f"   将生成的 .cube 文件导入支持3D LUT的软件:")
+
+        print(f"\n📹 视频编辑软件:")
         print(f"   • Adobe Premiere Pro: 效果面板 → Lumetri颜色 → 输入LUT")
         print(f"   • DaVinci Resolve: 色彩页面 → LUTs → 添加3D LUT")
+        print(f"   • Final Cut Pro: 效果浏览器 → 颜色 → 颜色查找表 → 3D LUT")
+        print(f"   • After Effects: 效果 → 颜色校正 → 应用颜色LUT")
+
+        print(f"\n🖼️ 静态图像软件:")
         print(f"   • Adobe Photoshop: 图层 → 新建调整图层 → 颜色查找 → 3DLUT文件")
+        print(f"   • Affinity Photo: 调整图层 → 重新映射 → 3D LUT")
+        print(f"   • Capture One: 颜色编辑 → 颜色分级工具 → 导入3D LUT")
+
+        print(f"\n📷 专业摄影软件:")
+        print(f"   • Adobe Lightroom 和 Adobe Camera Raw:")
+        print(f"     1. 打开 Photoshop，随便打开一张 Raw 格式图片（或使用 滤镜 > Camera Raw 滤镜）")
+        print(f"     2. **关键步骤**: 打开预设面板, 按住键盘上的 Alt 键 (Windows) 或 Option 键 (Mac) 不松手, 同时点击\"新建预设\"图标")
+        print(f"     3. 在弹出的\"新建配置文件 (New Profile)\"窗口中：")
+        print(f"        - 勾选最下方的\"颜色查找表 (Color Lookup Table)\"")
+        print(f"        - 点击文件夹图标，选择你的.cube文件（此时是可以选中的）")
+        print(f"        - 起个名字，点击确定")
+        print(f"     ")
+        print(f"     使用方法:")
+        print(f"     - 创建的配置文件会自动同步到Lightroom和Camera Raw")
+        print(f"     - 在Lightroom的\"配置文件\"面板中可以找到新建的配置文件")
+        print(f"     - 在Camera Raw的\"配置文件\"浏览器中可以使用")
 
         return 0
 

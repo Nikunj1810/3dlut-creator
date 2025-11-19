@@ -152,9 +152,36 @@ python main.py --photoa ./photoa --photob ./photob --output ./output/film_lut
 
 将生成的 `.cube` 文件导入到支持LUT的软件中：
 
+#### 视频编辑软件
 - **Adobe Premiere Pro**: 效果面板 → Lumetri颜色 → 输入LUT
 - **DaVinci Resolve**: 色彩页面 → LUTs → 添加3D LUT
+- **Final Cut Pro**: 效果浏览器 → 颜色 → 颜色查找表 → 3D LUT
+- **After Effects**: 效果 → 颜色校正 → 应用颜色LUT
+
+#### 静态图像软件
 - **Adobe Photoshop**: 图层 → 新建调整图层 → 颜色查找 → 3DLUT文件
+- **Affinity Photo**: 调整图层 → 重新映射 → 3D LUT
+- **Capture One**: 颜色编辑 → 颜色分级工具 → 导入3D LUT
+
+#### 专业摄影软件
+- **Adobe Lightroom** 和 **Adobe Camera Raw**:
+
+  1. 打开 Photoshop，随便打开一张 Raw 格式图片（或使用 滤镜 > Camera Raw 滤镜）
+  2. **关键步骤**: 打开预设面板, 按住键盘上的 Alt 键 (Windows) 或 Option 键 (Mac) 不松手, 同时点击"新建预设"图标
+  3. 在弹出的"新建配置文件 (New Profile)"窗口中：
+     - 勾选最下方的"颜色查找表 (Color Lookup Table)"
+     - 点击文件夹图标，选择你的.cube文件（此时是可以选中的）
+     - 起个名字，点击确定
+
+  **使用方法**:
+  - 创建的配置文件会自动同步到Lightroom和Camera Raw
+  - 在Lightroom的"配置文件"面板中可以找到新建的配置文件
+  - 在Camera Raw的"配置文件"浏览器中可以使用
+
+#### 其他软件
+- **SpeedGrade**: LUT面板 → 导入3D LUT
+- **Nuke**: ColorCorrect节点 → 查找表 → 选择LUT文件
+- **Baselight**: 图层 → LUT → 导入立方LUT
 
 ## 技术细节
 
