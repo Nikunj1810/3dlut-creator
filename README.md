@@ -42,6 +42,15 @@
 
 ## 安装依赖
 
+
+可选：先安装 CUDA 版本的 PyTorch：
+
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+```
+
+安装所有依赖：
+
 ```bash
 pip install -r requirements.txt
 ```
