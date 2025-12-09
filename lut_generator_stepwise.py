@@ -121,17 +121,23 @@ class LUT3DGeneratorStepwise:
 
     def _add_anchor_points(self, color_mappings: Dict[Tuple[int, int, int], Tuple[int, int, int]]):
         """
-        Add anchor points (black, white, and mid-gray) if missing for better interpolation
+        Add anchor points (black, white, grays, highlights, and shadows) if missing for better interpolation
 
         Args:
             color_mappings: Color mapping dictionary to modify in-place
         """
         # Black and white use identity mapping (color space boundaries)
-        # Mid-gray uses inference based on existing mappings (reflects color grading style)
+        # Other anchor points use inference based on existing mappings (reflects color grading style)
         anchors_to_check = [
             ((0, 0, 0), "纯黑", (0, 0, 0)),
             ((255, 255, 255), "纯白", (255, 255, 255)),
-            ((128, 128, 128), "中灰", None)  # None means infer
+            ((128, 128, 128), "中灰", None),  # None means infer
+            # 高光区域锚点 - 防止高光溢出
+            ((230, 230, 230), "高光", None),
+            ((200, 200, 200), "亮部", None),
+            # 暗部区域锚点 - 防止暗部断层
+            ((25, 25, 25), "深暗部", None),
+            ((50, 50, 50), "暗部", None),
         ]
 
         added_anchors = []
@@ -229,6 +235,115 @@ class LUT3DGeneratorStepwise:
 
         return tuple(inferred_rgb)
 
+    @staticmethod
+    def rgb_to_lab(rgb: np.ndarray) -> np.ndarray:
+        """
+        Convert RGB to LAB color space for perceptually uniform interpolation
+
+        Args:
+            rgb: RGB values in range [0, 255], shape (..., 3)
+
+        Returns:
+            LAB values, L in [0, 100], a and b in approximately [-128, 127]
+        """
+        # Normalize RGB to [0, 1]
+        rgb_normalized = rgb / 255.0
+
+        # Convert to linear RGB (inverse sRGB gamma correction)
+        mask = rgb_normalized > 0.04045
+        rgb_linear = np.where(
+            mask,
+            np.power((rgb_normalized + 0.055) / 1.055, 2.4),
+            rgb_normalized / 12.92
+        )
+
+        # RGB to XYZ conversion matrix (D65 illuminant)
+        # Using sRGB color space
+        rgb_to_xyz_matrix = np.array([
+            [0.4124564, 0.3575761, 0.1804375],
+            [0.2126729, 0.7151522, 0.0721750],
+            [0.0193339, 0.1191920, 0.9503041]
+        ])
+
+        # Convert to XYZ
+        xyz = rgb_linear @ rgb_to_xyz_matrix.T
+
+        # Normalize by D65 white point
+        xyz_n = xyz / np.array([0.95047, 1.00000, 1.08883])
+
+        # XYZ to LAB conversion
+        delta = 6.0 / 29.0
+        mask = xyz_n > delta ** 3
+        f_xyz = np.where(
+            mask,
+            np.power(xyz_n, 1.0 / 3.0),
+            (xyz_n / (3.0 * delta ** 2)) + (4.0 / 29.0)
+        )
+
+        # Calculate LAB values
+        L = 116.0 * f_xyz[..., 1] - 16.0
+        a = 500.0 * (f_xyz[..., 0] - f_xyz[..., 1])
+        b = 200.0 * (f_xyz[..., 1] - f_xyz[..., 2])
+
+        return np.stack([L, a, b], axis=-1)
+
+    @staticmethod
+    def lab_to_rgb(lab: np.ndarray) -> np.ndarray:
+        """
+        Convert LAB back to RGB color space
+
+        Args:
+            lab: LAB values, L in [0, 100], a and b in approximately [-128, 127]
+
+        Returns:
+            RGB values in range [0, 255], shape (..., 3)
+        """
+        L, a, b = lab[..., 0], lab[..., 1], lab[..., 2]
+
+        # LAB to XYZ conversion
+        fy = (L + 16.0) / 116.0
+        fx = a / 500.0 + fy
+        fz = fy - b / 200.0
+
+        delta = 6.0 / 29.0
+
+        # Inverse f function
+        mask_x = fx > delta
+        mask_y = fy > delta
+        mask_z = fz > delta
+
+        xyz_normalized = np.stack([
+            np.where(mask_x, fx ** 3, 3.0 * delta ** 2 * (fx - 4.0 / 29.0)),
+            np.where(mask_y, fy ** 3, 3.0 * delta ** 2 * (fy - 4.0 / 29.0)),
+            np.where(mask_z, fz ** 3, 3.0 * delta ** 2 * (fz - 4.0 / 29.0))
+        ], axis=-1)
+
+        # Denormalize by D65 white point
+        xyz = xyz_normalized * np.array([0.95047, 1.00000, 1.08883])
+
+        # XYZ to RGB conversion matrix (D65 illuminant)
+        xyz_to_rgb_matrix = np.array([
+            [ 3.2404542, -1.5371385, -0.4985314],
+            [-0.9692660,  1.8760108,  0.0415560],
+            [ 0.0556434, -0.2040259,  1.0572252]
+        ])
+
+        # Convert to linear RGB
+        rgb_linear = xyz @ xyz_to_rgb_matrix.T
+
+        # Apply sRGB gamma correction
+        mask = rgb_linear > 0.0031308
+        rgb_normalized = np.where(
+            mask,
+            1.055 * np.power(rgb_linear, 1.0 / 2.4) - 0.055,
+            12.92 * rgb_linear
+        )
+
+        # Convert to [0, 255] range and clip
+        rgb = np.clip(rgb_normalized * 255.0, 0, 255)
+
+        return rgb
+
     def generate_lut_grid(self) -> np.ndarray:
         """
         Generate 3D LUT grid coordinates
@@ -317,28 +432,38 @@ class LUT3DGeneratorStepwise:
     def fast_interpolation_gpu(self, grid_points: np.ndarray,
                                color_mapping_dict: Dict[Tuple[int, int, int], Tuple[int, int, int]]) -> np.ndarray:
         """
-        Fast GPU-based interpolation using PyTorch
+        Fast GPU-based interpolation using PyTorch in LAB color space
 
         Args:
-            grid_points: Grid points to interpolate (N, 3)
-            color_mapping_dict: Color mapping dictionary
+            grid_points: Grid points to interpolate (N, 3) in RGB space
+            color_mapping_dict: Color mapping dictionary in RGB space
 
         Returns:
-            Interpolated colors (N, 3)
+            Interpolated colors (N, 3) in RGB space
         """
         if not TORCH_AVAILABLE:
             print("PyTorch不可用，回退到CPU模式")
             return self.fast_interpolation_cpu_fallback(grid_points, color_mapping_dict)
 
-        print(f"开始GPU插值计算，{len(color_mapping_dict)} 个映射点...")
+        print(f"开始GPU插值计算（LAB色彩空间），{len(color_mapping_dict)} 个映射点...")
 
         device = torch.device(self.device)
         n_grid_points = grid_points.shape[0]
 
+        # Convert RGB to LAB color space for perceptually uniform interpolation
+        print("转换颜色映射到LAB空间...")
+        mapping_keys_rgb = np.array(list(color_mapping_dict.keys()), dtype=np.float32)
+        mapping_values_rgb = np.array(list(color_mapping_dict.values()), dtype=np.float32)
+
+        # Convert to LAB
+        mapping_keys_lab = self.rgb_to_lab(mapping_keys_rgb)
+        mapping_values_lab = self.rgb_to_lab(mapping_values_rgb)
+        query_points_lab = self.rgb_to_lab(grid_points)
+
         # Prepare data for GPU
-        mapping_keys = torch.tensor(list(color_mapping_dict.keys()), dtype=torch.float32, device=device)
-        mapping_values = torch.tensor(list(color_mapping_dict.values()), dtype=torch.float32, device=device)
-        query_points = torch.tensor(grid_points, dtype=torch.float32, device=device)
+        mapping_keys = torch.tensor(mapping_keys_lab, dtype=torch.float32, device=device)
+        mapping_values = torch.tensor(mapping_values_lab, dtype=torch.float32, device=device)
+        query_points = torch.tensor(query_points_lab, dtype=torch.float32, device=device)
 
         memory_usage = mapping_keys.nbytes / 1024 / 1024
         print(f"GPU数据准备完成，内存使用: {memory_usage:.1f} MB")
@@ -356,7 +481,7 @@ class LUT3DGeneratorStepwise:
 
             batch_points = query_points[start:end]
 
-            # Calculate distances using PyTorch
+            # Calculate distances in LAB space using PyTorch
             distances = torch.cdist(batch_points, mapping_keys, p=2)  # Shape: (batch, n_mappings)
 
             # Find nearest neighbors
@@ -376,8 +501,8 @@ class LUT3DGeneratorStepwise:
                     closest_idx = torch.argmin(point_distances)
                     batch_result[i] = point_values[closest_idx]
                 else:
-                    # Inverse distance weighting
-                    weights = 1.0 / (point_distances + 1e-6)
+                    # Inverse square distance weighting for smoother transitions
+                    weights = 1.0 / (point_distances ** 2 + 1e-6)
                     weights = weights / torch.sum(weights)
                     batch_result[i] = torch.sum(weights.unsqueeze(1) * point_values, dim=0)
 
@@ -393,35 +518,55 @@ class LUT3DGeneratorStepwise:
         print()  # New line
         print(f"GPU插值完成，耗时: {time.time() - start_time:.1f}秒")
 
-        # Move back to CPU
-        return result.cpu().numpy()
+        # Move back to CPU and convert from LAB to RGB
+        result_lab = result.cpu().numpy()
+        print("转换插值结果从LAB回RGB空间...")
+        result_rgb = self.lab_to_rgb(result_lab)
+
+        return result_rgb
 
     def fast_interpolation_cpu_fallback(self, grid_points: np.ndarray,
                                        color_mapping_dict: Dict[Tuple[int, int, int], Tuple[int, int, int]]) -> np.ndarray:
         """
-        Optimized CPU interpolation with spatial indexing
+        Optimized CPU interpolation with spatial indexing in LAB color space
 
         Args:
-            grid_points: Grid points to interpolate (N, 3)
-            color_mapping_dict: Color mapping dictionary
+            grid_points: Grid points to interpolate (N, 3) in RGB space
+            color_mapping_dict: Color mapping dictionary in RGB space
 
         Returns:
-            Interpolated colors (N, 3)
+            Interpolated colors (N, 3) in RGB space
         """
-        print(f"使用优化CPU插值，{len(color_mapping_dict)} 个映射点...")
+        print(f"使用优化CPU插值（LAB色彩空间），{len(color_mapping_dict)} 个映射点...")
 
-        # Create spatial index for faster lookup
-        grid_size = 16  # Create 16x16x16 spatial grid
+        # Convert RGB to LAB color space for perceptually uniform interpolation
+        print("转换颜色映射到LAB空间...")
+        mapping_keys_rgb = np.array(list(color_mapping_dict.keys()), dtype=np.float32)
+        mapping_values_rgb = np.array(list(color_mapping_dict.values()), dtype=np.float32)
+
+        # Convert to LAB
+        mapping_keys_lab = self.rgb_to_lab(mapping_keys_rgb)
+        mapping_values_lab = self.rgb_to_lab(mapping_values_rgb)
+        query_points_lab = self.rgb_to_lab(grid_points)
+
+        # Create mapping dictionary in LAB space (for exact match checks)
+        lab_mapping_dict = {}
+        for i, key_rgb in enumerate(color_mapping_dict.keys()):
+            key_lab = tuple(mapping_keys_lab[i])
+            lab_mapping_dict[key_lab] = mapping_values_lab[i]
+
+        # Create spatial index in LAB space for faster lookup
+        grid_size = 10  # Smaller grid size for LAB space (different scale)
         spatial_index = {}
 
-        for rgb_in, rgb_out in color_mapping_dict.items():
-            grid_pos = (rgb_in[0] // grid_size, rgb_in[1] // grid_size, rgb_in[2] // grid_size)
+        for i, key_lab in enumerate(mapping_keys_lab):
+            grid_pos = (int(key_lab[0] // grid_size), int(key_lab[1] // grid_size), int(key_lab[2] // grid_size))
             if grid_pos not in spatial_index:
                 spatial_index[grid_pos] = []
-            spatial_index[grid_pos].append((rgb_in, rgb_out))
+            spatial_index[grid_pos].append((key_lab, mapping_values_lab[i]))
 
-        n_grid_points = grid_points.shape[0]
-        result = np.zeros((n_grid_points, 3), dtype=np.float32)
+        n_grid_points = query_points_lab.shape[0]
+        result_lab = np.zeros((n_grid_points, 3), dtype=np.float32)
 
         start_time = time.time()
         batch_size = 2000  # Larger batch size for CPU
@@ -432,16 +577,10 @@ class LUT3DGeneratorStepwise:
             end = min((batch_idx + 1) * batch_size, n_grid_points)
 
             for i in range(start, end):
-                point = grid_points[i]
-                point_int = tuple(point.astype(int))
+                point_lab = query_points_lab[i]
 
-                # Check for exact match first
-                if point_int in color_mapping_dict:
-                    result[i] = color_mapping_dict[point_int]
-                    continue
-
-                # Search nearby spatial cells
-                grid_pos = (point[0] // grid_size, point[1] // grid_size, point[2] // grid_size)
+                # Search nearby spatial cells in LAB space
+                grid_pos = (int(point_lab[0] // grid_size), int(point_lab[1] // grid_size), int(point_lab[2] // grid_size))
                 candidates = []
 
                 # Search current cell and neighboring cells
@@ -453,15 +592,15 @@ class LUT3DGeneratorStepwise:
                                 candidates.extend(spatial_index[search_pos])
 
                 if not candidates:
-                    # Fallback to global search
-                    candidates = list(color_mapping_dict.items())
+                    # Fallback to using all mappings
+                    candidates = [(mapping_keys_lab[j], mapping_values_lab[j]) for j in range(len(mapping_keys_lab))]
 
-                # Find nearest neighbors
+                # Find nearest neighbors in LAB space
                 if len(candidates) > 0:
                     candidate_keys = np.array([c[0] for c in candidates], dtype=np.float32)
                     candidate_values = np.array([c[1] for c in candidates], dtype=np.float32)
 
-                    distances = np.linalg.norm(candidate_keys - point, axis=1)
+                    distances = np.linalg.norm(candidate_keys - point_lab, axis=1)
                     k = min(8, len(candidates))
                     # 确保k不会超出数组边界 (k-1用于argpartition)
                     k = min(k, len(distances))
@@ -477,12 +616,12 @@ class LUT3DGeneratorStepwise:
                     if np.min(nearest_distances) < 2.0:
                         # 找到实际的最小值索引
                         actual_min_idx = np.argmin(nearest_distances)
-                        result[i] = nearest_values[actual_min_idx]
+                        result_lab[i] = nearest_values[actual_min_idx]
                     else:
-                        # Weighted average
-                        weights = 1.0 / (nearest_distances + 1e-6)
+                        # Inverse square distance weighting for smoother transitions
+                        weights = 1.0 / (nearest_distances ** 2 + 1e-6)
                         weights = weights / np.sum(weights)
-                        result[i] = np.sum(weights[:, np.newaxis] * nearest_values, axis=0)
+                        result_lab[i] = np.sum(weights[:, np.newaxis] * nearest_values, axis=0)
 
             # Progress update
             if (batch_idx + 1) % 10 == 0 or batch_idx == total_batches - 1:
@@ -494,7 +633,11 @@ class LUT3DGeneratorStepwise:
         print()  # New line
         print(f"优化CPU插值完成，耗时: {time.time() - start_time:.1f}秒")
 
-        return result
+        # Convert from LAB back to RGB
+        print("转换插值结果从LAB回RGB空间...")
+        result_rgb = self.lab_to_rgb(result_lab)
+
+        return result_rgb
 
     def generate_3d_lut_stepwise(self, photoa_dir: str, photob_dir: str) -> np.ndarray:
         """
