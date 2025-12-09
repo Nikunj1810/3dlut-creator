@@ -2,6 +2,8 @@ import numpy as np
 from typing import Tuple, Dict, List, Optional
 from image_processor import ImageColorMapper
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 
 
 import torch
@@ -639,19 +641,21 @@ class LUT3DGeneratorStepwise:
 
         return result_rgb
 
-    def generate_3d_lut_stepwise(self, photoa_dir: str, photob_dir: str) -> np.ndarray:
+    def generate_3d_lut_stepwise(self, photoa_dir: str, photob_dir: str, num_threads: int = 4) -> np.ndarray:
         """
-        Generate 3D LUT by processing images step by step
+        Generate 3D LUT by processing images with multi-threading
 
         Args:
             photoa_dir: Base images directory
             photob_dir: Mapped images directory
+            num_threads: Number of threads for parallel processing (default: 4)
 
         Returns:
             3D LUT data array with shape (lut_size, lut_size, lut_size, 3)
         """
         print(f"开始分步生成 {self.lut_size}x{self.lut_size}x{self.lut_size} 的3D LUT...")
         print(f"使用设备: {self.device.upper()}")
+        print(f"使用 {num_threads} 个线程并行处理图片")
 
         # Find all image pairs
         import glob
@@ -671,34 +675,53 @@ class LUT3DGeneratorStepwise:
 
         print(f"找到 {len(image_pairs)} 对图片")
 
-        # Process images step by step
+        # Process images using multi-threading
         start_time = time.time()
         all_color_mappings = {}
+        mappings_lock = Lock()  # Thread-safe lock for dictionary updates
 
-        for i, (photoa_path, photob_path) in enumerate(image_pairs):
-            print(f"\n--- 处理图片 {i+1}/{len(image_pairs)} ---")
+        processed_count = [0]  # Use list to allow modification in closure
+        total_pairs = len(image_pairs)
 
-            # Process single image pair
+        def process_pair_wrapper(pair_tuple):
+            """Wrapper function for thread pool"""
+            photoa_path, photob_path = pair_tuple
+
+            # Process the image pair
             image_mappings = self.process_image_pair(photoa_path, photob_path)
 
-            # Direct merge - since process_image_pair already averaged the mappings
-            for rgb_in, rgb_out in image_mappings.items():
-                if rgb_in not in all_color_mappings:
-                    # Store as list for potential future merging
-                    all_color_mappings[rgb_in] = [rgb_out]
-                else:
-                    # Average with existing mappings
-                    existing_value = all_color_mappings[rgb_in][0]  # First (and only) value
-                    # Average the two mapping values
-                    avg_rgb = tuple(int(round((existing_value[j] + rgb_out[j]) / 2.0)) for j in range(3))
-                    all_color_mappings[rgb_in][0] = avg_rgb
+            # Thread-safe merge into all_color_mappings
+            with mappings_lock:
+                for rgb_in, rgb_out in image_mappings.items():
+                    if rgb_in not in all_color_mappings:
+                        # Store as list for potential future merging
+                        all_color_mappings[rgb_in] = [rgb_out]
+                    else:
+                        # Average with existing mappings
+                        existing_value = all_color_mappings[rgb_in][0]  # First (and only) value
+                        # Average the two mapping values
+                        avg_rgb = tuple(int(round((existing_value[j] + rgb_out[j]) / 2.0)) for j in range(3))
+                        all_color_mappings[rgb_in][0] = avg_rgb
 
-            print(f"  当前总映射数: {len(all_color_mappings)}")
+                processed_count[0] += 1
+                print(f"\n--- 已完成 {processed_count[0]}/{total_pairs} 对图片, 当前总映射数: {len(all_color_mappings)} ---")
 
-            # Periodic memory optimization
-            if len(all_color_mappings) > 200000 and i % 3 == 0:  # Every 3 images
-                print(f"内存优化: {len(all_color_mappings)} 个映射点，保持高效处理")
-                # all_color_mappings已经保持了精简状态，无需额外优化
+            return len(image_mappings)
+
+        # Execute parallel processing
+        print("\n开始多线程并行处理图片...")
+        with ThreadPoolExecutor(max_workers=num_threads) as executor:
+            # Submit all tasks
+            futures = [executor.submit(process_pair_wrapper, pair) for pair in image_pairs]
+
+            # Wait for all tasks to complete and handle results
+            for future in as_completed(futures):
+                try:
+                    mapping_count = future.result()
+                except Exception as e:
+                    print(f"\n处理图片时出错: {e}")
+                    import traceback
+                    traceback.print_exc()
 
         print(f"\n--- 最终处理完成 ---")
         final_mappings = {}
@@ -709,6 +732,7 @@ class LUT3DGeneratorStepwise:
 
         processing_time = time.time() - start_time
         print(f"图片处理完成，耗时: {processing_time:.1f}秒")
+        print(f"平均处理速度: {total_pairs / processing_time:.2f} 张/秒")
         print(f"最终颜色映射数量: {len(final_mappings)}")
 
         # Add anchor points (black and white) if missing for better interpolation

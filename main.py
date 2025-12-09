@@ -86,6 +86,13 @@ Examples:
         help='LUT file title'
     )
 
+    parser.add_argument(
+        '--threads',
+        type=int,
+        default=8,
+        help='Number of threads for parallel image processing (default: 8)'
+    )
+
     return parser.parse_args()
 
 
@@ -151,6 +158,7 @@ def main():
         print(f"  映射图片目录: {args.photob}")
         print(f"  输出文件: {args.output}")
         print(f"  LUT尺寸: {args.size}")
+        print(f"  并行线程数: {args.threads}")
         print(f"  导出格式: {args.formats}")
         print(f"  LUT标题: {args.title}")
 
@@ -159,8 +167,8 @@ def main():
 
         start_time = time.time()
 
-        generator = LUT3DGeneratorStepwise(lut_size=args.size, device=args.device)  # Use CPU for stability
-        lut_data = generator.generate_3d_lut_stepwise(args.photoa, args.photob)
+        generator = LUT3DGeneratorStepwise(lut_size=args.size, device=args.device)
+        lut_data = generator.generate_3d_lut_stepwise(args.photoa, args.photob, num_threads=args.threads)
 
         generation_time = time.time() - start_time
 
