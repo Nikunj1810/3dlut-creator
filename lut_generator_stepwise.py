@@ -4,6 +4,7 @@ from image_processor import ImageColorMapper
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
+import os
 
 
 import torch
@@ -42,18 +43,19 @@ class LUT3DGeneratorStepwise:
 
         self.torch_available = TORCH_AVAILABLE and self.device != 'cpu'
 
-    def process_image_pair(self, photoa_path: str, photob_path: str) -> np.ndarray:
+    def process_image_pair(self, photoa_path: str, photob_path: str) -> Dict[Tuple[int, int, int], Tuple[int, int, int]]:
         """
-        Process a single image pair and return partial LUT contribution
+        Process a single image pair and return partial LUT contribution (OPTIMIZED VERSION)
 
         Args:
             photoa_path: Base image path
             photob_path: Mapped image path
 
         Returns:
-            Partial color mapping contribution as numpy array
+            Dictionary of color mappings
         """
-        print(f"处理图片对: {photoa_path.split('/')[-1]}")
+        filename = os.path.basename(photoa_path)
+        print(f"处理图片对: {filename}")
 
         # Load images
         from PIL import Image
@@ -67,59 +69,73 @@ class LUT3DGeneratorStepwise:
             if img_b.mode != 'RGB':
                 img_b = img_b.convert('RGB')
 
-            rgb_a = np.array(img_a)
-            rgb_b = np.array(img_b)
+            rgb_a = np.array(img_a, dtype=np.uint8)
+            rgb_b = np.array(img_b, dtype=np.uint8)
 
             if rgb_a.shape != rgb_b.shape:
                 print(f"警告: 图片尺寸不一致，跳过 {photoa_path}")
-                return np.array([])
+                return {}
 
         except Exception as e:
             print(f"读取图片失败 {photoa_path}: {e}")
-            return np.array([])
+            return {}
 
-        # Extract unique color mappings from this image
+        # Extract unique color mappings using vectorized operations
         height, width = rgb_a.shape[:2]
-        unique_mappings = {}
-
-        print(f"  提取颜色映射 ({width}x{height} = {width*height:,} 像素)...")
-
-        # Process pixels in chunks to avoid memory issues
-        chunk_size = 10000  # Process 10k pixels at a time
         total_pixels = height * width
 
-        for start_idx in range(0, total_pixels, chunk_size):
-            end_idx = min(start_idx + chunk_size, total_pixels)
+        print(f"  提取颜色映射 ({width}x{height} = {total_pixels:,} 像素)...")
+        start_time = time.time()
 
-            # Convert flat index to 2D coordinates
-            for flat_idx in range(start_idx, end_idx):
-                y = flat_idx // width
-                x = flat_idx % width
+        # Reshape to (N, 3) for vectorized processing
+        pixels_a = rgb_a.reshape(-1, 3)
+        pixels_b = rgb_b.reshape(-1, 3)
 
-                rgb_in = tuple(rgb_a[y, x])
-                rgb_out = tuple(rgb_b[y, x])
+        keys_a = (pixels_a[:, 0].astype(np.int64) +
+                  pixels_a[:, 1].astype(np.int64) * 256 +
+                  pixels_a[:, 2].astype(np.int64) * 65536)
 
-                if rgb_in not in unique_mappings:
-                    unique_mappings[rgb_in] = []
-                unique_mappings[rgb_in].append(rgb_out)
+        # 获取唯一值和反向索引
+        unique_keys, inverse_indices = np.unique(keys_a, return_inverse=True)
 
-            # Progress update
-            if end_idx % 50000 == 0 or end_idx == total_pixels:
-                progress = (end_idx / total_pixels) * 100
-                print(f"  进度: {progress:.1f}%", end='\r')
+        # 1. 计算每个唯一颜色出现的次数
+        counts = np.bincount(inverse_indices, minlength=len(unique_keys))
 
-        print()  # New line
+        # 2. 分别计算 R, G, B 通道针对每个唯一 ID 的总和
+        # weights 参数允许我们累加 pixels_b 的值而不是仅仅计数
+        sum_r = np.bincount(inverse_indices, weights=pixels_b[:, 0], minlength=len(unique_keys))
+        sum_g = np.bincount(inverse_indices, weights=pixels_b[:, 1], minlength=len(unique_keys))
+        sum_b = np.bincount(inverse_indices, weights=pixels_b[:, 2], minlength=len(unique_keys))
 
-        # Average multiple mappings for same input color
-        averaged_mappings = {}
-        for rgb_in, rgb_out_list in unique_mappings.items():
-            if rgb_out_list:
-                avg_rgb = tuple(int(round(np.mean(rgb_out_list, axis=0)[i])) for i in range(3))
-                averaged_mappings[rgb_in] = avg_rgb
+        # 3. 计算平均值 (总和 / 次数)
+        # 注意处理除以 0 的情况（虽然逻辑上 np.unique 保证了 count >= 1，但为了健壮性）
+        valid_mask = counts > 0
+        mean_r = np.zeros_like(sum_r)
+        mean_g = np.zeros_like(sum_g)
+        mean_b = np.zeros_like(sum_b)
 
-        print(f"  提取到 {len(averaged_mappings)} 个唯一颜色映射")
+        mean_r[valid_mask] = sum_r[valid_mask] / counts[valid_mask]
+        mean_g[valid_mask] = sum_g[valid_mask] / counts[valid_mask]
+        mean_b[valid_mask] = sum_b[valid_mask] / counts[valid_mask]
 
-        return averaged_mappings
+        # 4. 组装结果字典
+        unique_mappings = {}
+
+        # 解析输入 Key (还原 RGB)
+        in_r = (unique_keys % 256).astype(int)
+        in_g = ((unique_keys // 256) % 256).astype(int)
+        in_b = (unique_keys // 65536).astype(int)
+
+        # 这里的循环是 O(K)，且内部只有简单的赋值，速度极快
+        for i in range(len(unique_keys)):
+            k_in = (in_r[i], in_g[i], in_b[i])
+            v_out = (int(round(mean_r[i])), int(round(mean_g[i])), int(round(mean_b[i])))
+            unique_mappings[k_in] = v_out
+
+        elapsed = time.time() - start_time
+        print(f"  提取到 {len(unique_mappings)} 个唯一颜色映射 (耗时: {elapsed:.2f}秒)")
+
+        return unique_mappings
 
     def _add_anchor_points(self, color_mappings: Dict[Tuple[int, int, int], Tuple[int, int, int]]):
         """
