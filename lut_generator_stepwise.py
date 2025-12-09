@@ -450,14 +450,7 @@ class LUT3DGeneratorStepwise:
     def fast_interpolation_gpu(self, grid_points: np.ndarray,
                                color_mapping_dict: Dict[Tuple[int, int, int], Tuple[int, int, int]]) -> np.ndarray:
         """
-        Fast GPU-based interpolation using PyTorch in LAB color space
-
-        Args:
-            grid_points: Grid points to interpolate (N, 3) in RGB space
-            color_mapping_dict: Color mapping dictionary in RGB space
-
-        Returns:
-            Interpolated colors (N, 3) in RGB space
+        Fast GPU-based interpolation using PyTorch in LAB color space (Fully Vectorized)
         """
         if not TORCH_AVAILABLE:
             print("PyTorch不可用，回退到CPU模式")
@@ -468,80 +461,90 @@ class LUT3DGeneratorStepwise:
         device = torch.device(self.device)
         n_grid_points = grid_points.shape[0]
 
-        # Convert RGB to LAB color space for perceptually uniform interpolation
-        print("转换颜色映射到LAB空间...")
+        # 1. 预处理数据 (LAB 转换也应该移到 GPU 以减少传输，这里暂保持原样)
         mapping_keys_rgb = np.array(list(color_mapping_dict.keys()), dtype=np.float32)
         mapping_values_rgb = np.array(list(color_mapping_dict.values()), dtype=np.float32)
 
-        # Convert to LAB
         mapping_keys_lab = self.rgb_to_lab(mapping_keys_rgb)
         mapping_values_lab = self.rgb_to_lab(mapping_values_rgb)
         query_points_lab = self.rgb_to_lab(grid_points)
 
-        # Prepare data for GPU
+        # 移入 GPU
         mapping_keys = torch.tensor(mapping_keys_lab, dtype=torch.float32, device=device)
         mapping_values = torch.tensor(mapping_values_lab, dtype=torch.float32, device=device)
         query_points = torch.tensor(query_points_lab, dtype=torch.float32, device=device)
 
-        memory_usage = mapping_keys.nbytes / 1024 / 1024
-        print(f"GPU数据准备完成，内存使用: {memory_usage:.1f} MB")
-
-        # Batch processing to avoid memory issues
-        batch_size = 5000  # Process 5k points at a time
+        # 2. 动态调整 Batch Size
+        # cdist 会生成 (Batch, N_mapping) 的矩阵。如果 N_mapping 很大 (如 10w)，
+        # 5000 * 100000 * 4 bytes ≈ 2GB 显存。
+        batch_size = 5000
         total_batches = (n_grid_points + batch_size - 1) // batch_size
 
         result = torch.zeros((n_grid_points, 3), dtype=torch.float32, device=device)
+
+        # IDW 参数
+        k = min(16, len(mapping_keys))
+        epsilon = 1e-6 # 防止除以0
+
         start_time = time.time()
 
         for batch_idx in range(total_batches):
             start = batch_idx * batch_size
             end = min((batch_idx + 1) * batch_size, n_grid_points)
 
+            # (Batch, 3)
             batch_points = query_points[start:end]
 
-            # Calculate distances in LAB space using PyTorch
-            distances = torch.cdist(batch_points, mapping_keys, p=2)  # Shape: (batch, n_mappings)
+            # --- 向量化优化开始 ---
 
-            # Find nearest neighbors
-            k = min(16, len(mapping_keys))  # Use more neighbors for better quality
-            nearest_distances, nearest_indices = torch.topk(distances, k, largest=False, dim=1)
+            # 1. 计算距离矩阵 (Batch, N_mapping)
+            # 注意：如果显存 OOM，这里是第一个挂掉的地方
+            dists = torch.cdist(batch_points, mapping_keys)
 
-            # Create result tensor
-            batch_result = torch.zeros((end - start, 3), dtype=torch.float32, device=device)
+            # 2. 找到最近的 K 个邻居 (Batch, K)
+            # nearest_dists: 距离值, nearest_indices: 索引
+            nearest_dists, nearest_indices = torch.topk(dists, k, largest=False, dim=1)
 
-            for i in range(end - start):
-                point_distances = nearest_distances[i]
-                point_indices = nearest_indices[i]
-                point_values = mapping_values[point_indices]
+            # 3. 获取邻居的颜色值 (Batch, K, 3)
+            # 使用高级索引一次性取出所有需要的颜色
+            nearest_colors = mapping_values[nearest_indices]
 
-                # Check for exact match
-                if torch.min(point_distances) < 1.0:
-                    closest_idx = torch.argmin(point_distances)
-                    batch_result[i] = point_values[closest_idx]
-                else:
-                    # Inverse square distance weighting for smoother transitions
-                    weights = 1.0 / (point_distances ** 2 + 1e-6)
-                    weights = weights / torch.sum(weights)
-                    batch_result[i] = torch.sum(weights.unsqueeze(1) * point_values, dim=0)
+            # 4. 计算权重 (反比距离平方) (Batch, K)
+            weights = 1.0 / (nearest_dists ** 2 + epsilon)
+
+            # 归一化权重 (Batch, K) / (Batch, 1) -> (Batch, K)
+            weights_sum = torch.sum(weights, dim=1, keepdim=True)
+            normalized_weights = weights / weights_sum
+
+            # 5. 加权求和 (Batch, K, 1) * (Batch, K, 3) -> sum -> (Batch, 3)
+            batch_result = torch.sum(normalized_weights.unsqueeze(2) * nearest_colors, dim=1)
+
+            # 6. 处理精确匹配 (Exact Match)
+            # 如果最近邻距离小于阈值，直接使用最近邻颜色
+            # nearest_dists[:, 0] 是最近的一个点的距离
+            exact_match_mask = nearest_dists[:, 0] < 1.0  # (Batch,) Bool Tensor
+
+            if exact_match_mask.any():
+                # 直接覆盖结果中对应的行，使用最近邻(index 0)的颜色
+                batch_result[exact_match_mask] = nearest_colors[exact_match_mask, 0]
+
+            # --- 向量化优化结束 ---
 
             result[start:end] = batch_result
 
-            # Progress update
+            # 进度打印
             if (batch_idx + 1) % 5 == 0 or batch_idx == total_batches - 1:
-                progress = ((batch_idx + 1) / total_batches) * 100
                 elapsed = time.time() - start_time
-                eta = (elapsed / (batch_idx + 1)) * (total_batches - batch_idx - 1)
-                print(f"GPU插值进度: {progress:.1f}% (预计剩余 {eta:.0f}秒)", end='\r')
+                avg_time = elapsed / (batch_idx + 1)
+                remaining = avg_time * (total_batches - batch_idx - 1)
+                print(f"GPU插值进度: {(batch_idx+1)/total_batches:.1%}, 剩余: {remaining:.1f}s", end='\r')
 
-        print()  # New line
-        print(f"GPU插值完成，耗时: {time.time() - start_time:.1f}秒")
+        print(f"\nGPU插值完成，耗时: {time.time() - start_time:.2f}秒")
 
-        # Move back to CPU and convert from LAB to RGB
+        # 转回 CPU
         result_lab = result.cpu().numpy()
         print("转换插值结果从LAB回RGB空间...")
-        result_rgb = self.lab_to_rgb(result_lab)
-
-        return result_rgb
+        return self.lab_to_rgb(result_lab)
 
     def fast_interpolation_cpu_fallback(self, grid_points: np.ndarray,
                                        color_mapping_dict: Dict[Tuple[int, int, int], Tuple[int, int, int]]) -> np.ndarray:
