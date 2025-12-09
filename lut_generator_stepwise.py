@@ -119,6 +119,116 @@ class LUT3DGeneratorStepwise:
 
         return averaged_mappings
 
+    def _add_anchor_points(self, color_mappings: Dict[Tuple[int, int, int], Tuple[int, int, int]]):
+        """
+        Add anchor points (black, white, and mid-gray) if missing for better interpolation
+
+        Args:
+            color_mappings: Color mapping dictionary to modify in-place
+        """
+        # Black and white use identity mapping (color space boundaries)
+        # Mid-gray uses inference based on existing mappings (reflects color grading style)
+        anchors_to_check = [
+            ((0, 0, 0), "纯黑", (0, 0, 0)),
+            ((255, 255, 255), "纯白", (255, 255, 255)),
+            ((128, 128, 128), "中灰", None)  # None means infer
+        ]
+
+        added_anchors = []
+
+        for anchor_color, anchor_name, default_mapping in anchors_to_check:
+            if anchor_color not in color_mappings:
+                if default_mapping is not None:
+                    # Use identity mapping for black and white
+                    color_mappings[anchor_color] = default_mapping
+                    added_anchors.append(f"{anchor_name}{anchor_color}->{default_mapping}")
+                else:
+                    # Infer from nearest neighbors for mid-gray
+                    inferred_color = self._infer_anchor_mapping(anchor_color, color_mappings)
+                    color_mappings[anchor_color] = inferred_color
+                    added_anchors.append(f"{anchor_name}{anchor_color}->{inferred_color}")
+
+        if added_anchors:
+            print(f"添加了 {len(added_anchors)} 个锚点:")
+            for anchor in added_anchors:
+                print(f"  • {anchor}")
+        else:
+            print("所有锚点已存在，无需添加")
+
+    def _infer_anchor_mapping(self, target_color: Tuple[int, int, int],
+                             color_mappings: Dict[Tuple[int, int, int], Tuple[int, int, int]]) -> Tuple[int, int, int]:
+        """
+        Infer the mapping for an anchor color based on nearest neighbors
+
+        Args:
+            target_color: The color to infer mapping for
+            color_mappings: Existing color mappings
+
+        Returns:
+            Inferred RGB output color
+        """
+        if not color_mappings:
+            # Fallback to identity mapping
+            return target_color
+
+        # Convert to numpy for efficient computation
+        target = np.array(target_color, dtype=np.float32)
+
+        # Find k nearest neighbors
+        k = min(10, len(color_mappings))
+        keys = np.array(list(color_mappings.keys()), dtype=np.float32)
+        values = np.array(list(color_mappings.values()), dtype=np.float32)
+
+        # Calculate distances
+        distances = np.linalg.norm(keys - target, axis=1)
+
+        # Get k nearest
+        nearest_indices = np.argpartition(distances, k-1)[:k]
+        nearest_keys = keys[nearest_indices]
+        nearest_values = values[nearest_indices]
+        nearest_distances = distances[nearest_indices]
+
+        # Check if we have very close match
+        min_distance = np.min(nearest_distances)
+        if min_distance < 5.0:
+            # Use closest match directly
+            closest_idx = np.argmin(nearest_distances)
+            return tuple(nearest_values[closest_idx].astype(int))
+
+        # Extrapolate using linear regression on nearest neighbors
+        # For each channel, fit: output = a * input + b
+        inferred_rgb = []
+
+        for channel in range(3):
+            input_channel = nearest_keys[:, channel]
+            output_channel = nearest_values[:, channel]
+
+            # Weight by inverse distance
+            weights = 1.0 / (nearest_distances + 1e-6)
+            weights = weights / np.sum(weights)
+
+            # Weighted linear regression
+            mean_in = np.sum(weights * input_channel)
+            mean_out = np.sum(weights * output_channel)
+
+            numerator = np.sum(weights * (input_channel - mean_in) * (output_channel - mean_out))
+            denominator = np.sum(weights * (input_channel - mean_in) ** 2)
+
+            if abs(denominator) > 1e-6:
+                # Linear extrapolation: y = a*x + b
+                a = numerator / denominator
+                b = mean_out - a * mean_in
+                predicted = a * target[channel] + b
+            else:
+                # Fallback to weighted average
+                predicted = mean_out
+
+            # Clamp to valid range
+            predicted = np.clip(predicted, 0, 255)
+            inferred_rgb.append(int(round(predicted)))
+
+        return tuple(inferred_rgb)
+
     def generate_lut_grid(self) -> np.ndarray:
         """
         Generate 3D LUT grid coordinates
@@ -457,6 +567,10 @@ class LUT3DGeneratorStepwise:
         processing_time = time.time() - start_time
         print(f"图片处理完成，耗时: {processing_time:.1f}秒")
         print(f"最终颜色映射数量: {len(final_mappings)}")
+
+        # Add anchor points (black and white) if missing for better interpolation
+        print(f"\n--- 检查并添加锚点 ---")
+        self._add_anchor_points(final_mappings)
 
         # Generate grid points
         print(f"\n--- 生成3D LUT网格 ---")
