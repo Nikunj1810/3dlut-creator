@@ -262,7 +262,6 @@ def main():
         print(f"\n🖼️ 静态图像软件:")
         print(f"   • Adobe Photoshop: 图层 → 新建调整图层 → 颜色查找 → 3DLUT文件")
         print(f"   • Affinity Photo: 调整图层 → 重新映射 → 3D LUT")
-        print(f"   • Capture One: 颜色编辑 → 颜色分级工具 → 导入3D LUT")
 
         print(f"\n📷 专业摄影软件:")
         print(f"   • Adobe Lightroom 和 Adobe Camera Raw:")

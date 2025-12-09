@@ -191,7 +191,6 @@ python main.py --photoa ./photoa --photob ./photob --output ./output/film_lut
 #### 静态图像软件
 - **Adobe Photoshop**: 图层 → 新建调整图层 → 颜色查找 → 3DLUT文件
 - **Affinity Photo**: 调整图层 → 重新映射 → 3D LUT
-- **Capture One**: 颜色编辑 → 颜色分级工具 → 导入3D LUT
 
 #### 专业摄影软件
 - **Adobe Lightroom** 和 **Adobe Camera Raw**:
@@ -208,10 +207,6 @@ python main.py --photoa ./photoa --photob ./photob --output ./output/film_lut
   - 在Lightroom的"配置文件"面板中可以找到新建的配置文件
   - 在Camera Raw的"配置文件"浏览器中可以使用
 
-#### 其他软件
-- **SpeedGrade**: LUT面板 → 导入3D LUT
-- **Nuke**: ColorCorrect节点 → 查找表 → 选择LUT文件
-- **Baselight**: 图层 → LUT → 导入立方LUT
 
 ## 技术细节
 
